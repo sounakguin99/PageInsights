@@ -1,0 +1,708 @@
+================================================================================
+                    PAGEINSIGHTS — FULL SPECIFICATION DOCUMENT
+                    (Production-Ready — Matching Google PSI Exactly)
+================================================================================
+
+═══════════════════════════════════════════════════════════════════════════
+1. TECH STACK
+═══════════════════════════════════════════════════════════════════════════
+
+🖥️ Frontend
+  • Next.js (App Router) + TypeScript
+  • Tailwind CSS
+  • Recharts (score gauges, bar charts)
+  • Framer Motion (animations)
+  • Axios (HTTP polling)
+
+🗄️ Database & Storage
+  • Supabase
+    - PostgreSQL (projects, reports, pages, audits, issues)
+    - Auth (optional, for user accounts later)
+    - Storage (PDF reports, page screenshots)
+
+⚙️ Backend (Core Engine)
+  • Node.js + Express
+  • Google PageSpeed Insights API v5 (PRIMARY DATA SOURCE — NOT mock data)
+  • Supabase SDK (for DB & Storage)
+  • Gemini AI / OpenAI SDK (for analysis explanation — Phase 5)
+
+📦 Infra (Later)
+  • Docker
+  • VPS / AWS / Railway / Render
+
+
+═══════════════════════════════════════════════════════════════════════════
+2. CRITICAL ARCHITECTURE DECISION — USE GOOGLE PSI API DIRECTLY
+═══════════════════════════════════════════════════════════════════════════
+
+⚠️ KEY CHANGE FROM ORIGINAL SPEC:
+
+Instead of running Lighthouse locally via subprocess (fragile, slow, 
+resource-heavy), we call the official Google PageSpeed Insights API v5 
+directly from our Node.js (Express) backend.
+
+API Endpoint:
+  GET https://www.googleapis.com/pagespeedonline/v5/runPagespeed
+
+Required Parameters:
+  • url           — The target URL to analyze
+  • strategy      — "mobile" OR "desktop" (we run BOTH, separately)
+  • category      — Must pass ALL 4:
+                     - performance
+                     - seo
+                     - accessibility
+                     - best-practices
+
+Full request example:
+  GET https://www.googleapis.com/pagespeedonline/v5/runPagespeed
+    ?url=https://www.sounakguin.in/
+    &strategy=mobile
+    &category=performance
+    &category=seo
+    &category=accessibility
+    &category=best-practices
+
+This returns the EXACT SAME data Google shows on pagespeed.web.dev.
+
+WHY THIS IS BETTER:
+  ✅ 100% score accuracy — identical to Google's own results
+  ✅ No local Lighthouse/Chrome install needed
+  ✅ No heavy subprocess management
+  ✅ No CPU throttling simulation issues
+  ✅ Free tier allows ~25,000 queries/day (with API key)
+  ✅ Returns both Lab Data AND Field Data (CrUX)
+
+
+═══════════════════════════════════════════════════════════════════════════
+3. SYSTEM ARCHITECTURE (Updated)
+═══════════════════════════════════════════════════════════════════════════
+
+Frontend (Next.js)
+        ↓ POST /analyze { url }
+API Gateway (Node.js / Express)
+        ↓
+Background Worker (Async non-blocking functions)
+   ├── Call PSI API (strategy=mobile)
+   ├── Call PSI API (strategy=desktop)
+   ├── Parse & normalize all response data
+   ├── Custom SEO crawl (Playwright — supplementary, Phase 2+)
+        ↓
+Supabase (DB + Storage)
+        ↓
+Frontend Dashboard (polls GET /status/{id} every 2-3 seconds)
+
+
+═══════════════════════════════════════════════════════════════════════════
+4. COMPLETE DATA MODEL — WHAT GOOGLE PSI API v5 RETURNS
+═══════════════════════════════════════════════════════════════════════════
+
+The API response JSON has these top-level sections:
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 4A. loadingExperience (FIELD DATA — Real User Metrics from CrUX)   │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│ Real-world data from the Chrome User Experience Report (28-day).     │
+│ Only available if site has enough traffic in CrUX dataset.           │
+│                                                                      │
+│ Metrics (each has percentile, distributions, category):              │
+│   • CUMULATIVE_LAYOUT_SHIFT_SCORE   (CLS)                           │
+│   • EXPERIMENTAL_TIME_TO_FIRST_BYTE (TTFB)                          │
+│   • FIRST_CONTENTFUL_PAINT_MS       (FCP)                           │
+│   • INTERACTION_TO_NEXT_PAINT       (INP)                           │
+│   • LARGEST_CONTENTFUL_PAINT_MS     (LCP)                           │
+│                                                                      │
+│ Each metric contains:                                                │
+│   - percentile (p75 value in ms or score)                            │
+│   - distributions[] — array of { min, max, proportion }              │
+│     (shows % of users in FAST / AVERAGE / SLOW buckets)              │
+│   - category — "FAST" | "AVERAGE" | "SLOW" | "NONE"                 │
+│                                                                      │
+│ Also: overall_category for the entire page                           │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 4B. originLoadingExperience (FIELD DATA — Origin-level CrUX)       │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│ Same structure as loadingExperience but aggregated across the        │
+│ ENTIRE origin (all pages on the domain), not just the tested URL.   │
+│ Same 5 metrics: CLS, TTFB, FCP, INP, LCP                           │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 4C. lighthouseResult.categories (LAB DATA — 4 Category Scores)     │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│ Each category has: id, title, score (0-1), auditRefs[]              │
+│                                                                      │
+│ 1. PERFORMANCE (score * 100 = the score circle number)              │
+│ 2. ACCESSIBILITY                                                     │
+│ 3. BEST-PRACTICES                                                    │
+│ 4. SEO                                                               │
+│                                                                      │
+│ ⚡ We display: score × 100 → rounded integer (e.g. 0.97 → 97)      │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 4D. lighthouseResult.audits — THE BIG ONE (All Detailed Audits)    │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│ This is a map of audit_id → audit_object.                           │
+│ Each audit has: id, title, description, score, scoreDisplayMode,    │
+│ displayValue, details{}, explanation, warnings                      │
+│                                                                      │
+│ ─── PERFORMANCE METRICS (6 Core Metrics) ───                        │
+│  • first-contentful-paint        (FCP)   — e.g. "2.5 s"            │
+│  • largest-contentful-paint      (LCP)   — e.g. "3.2 s"            │
+│  • total-blocking-time           (TBT)   — e.g. "180 ms"           │
+│  • cumulative-layout-shift       (CLS)   — e.g. "0.12"             │
+│  • speed-index                   (SI)    — e.g. "3.4 s"            │
+│  • interactive                   (TTI)   — e.g. "4.1 s"            │
+│                                                                      │
+│ ─── PERFORMANCE OPPORTUNITIES (Actionable Savings) ───              │
+│  • render-blocking-resources                                         │
+│  • uses-responsive-images                                            │
+│  • offscreen-images                                                  │
+│  • unminified-css                                                    │
+│  • unminified-javascript                                             │
+│  • unused-css-rules                                                  │
+│  • unused-javascript                                                 │
+│  • uses-optimized-images                                             │
+│  • modern-image-formats (WebP/AVIF)                                  │
+│  • uses-text-compression                                             │
+│  • uses-rel-preconnect                                               │
+│  • server-response-time (TTFB)                                       │
+│  • redirects                                                         │
+│  • uses-rel-preload                                                  │
+│  • efficient-animated-content                                        │
+│  • duplicated-javascript                                             │
+│  • legacy-javascript                                                 │
+│  • total-byte-weight                                                 │
+│  Each has: overallSavingsMs, overallSavingsBytes, items[]           │
+│                                                                      │
+│ ─── PERFORMANCE DIAGNOSTICS ───                                      │
+│  • dom-size                                                          │
+│  • critical-request-chains                                           │
+│  • font-display                                                      │
+│  • bootup-time                                                       │
+│  • mainthread-work-breakdown                                         │
+│  • third-party-summary                                               │
+│  • largest-contentful-paint-element                                  │
+│  • lcp-lazy-loaded                                                   │
+│  • layout-shift-elements (CLS culprits)                              │
+│  • uses-passive-event-listeners                                      │
+│  • no-document-write                                                 │
+│  • long-tasks                                                        │
+│  • non-composited-animations                                         │
+│  • unsized-images                                                    │
+│  • viewport                                                          │
+│  • network-requests                                                  │
+│  • network-rtt                                                       │
+│  • network-server-latency                                            │
+│  • main-thread-tasks                                                 │
+│  • user-timings                                                      │
+│  • screenshot-thumbnails (filmstrip of page load)                    │
+│  • final-screenshot (final rendered screenshot)                      │
+│                                                                      │
+│ ─── ACCESSIBILITY AUDITS ───                                         │
+│  • color-contrast                                                    │
+│  • image-alt                                                         │
+│  • label                                                             │
+│  • link-name                                                         │
+│  • list / listitem                                                   │
+│  • meta-viewport                                                     │
+│  • heading-order                                                     │
+│  • html-has-lang                                                     │
+│  • html-lang-valid                                                   │
+│  • document-title                                                    │
+│  • tabindex                                                          │
+│  • aria-allowed-attr                                                 │
+│  • aria-hidden-body                                                  │
+│  • aria-roles                                                        │
+│  • aria-valid-attr / aria-valid-attr-value                           │
+│  • button-name                                                       │
+│  • bypass                                                            │
+│  • definition-list / dlitem                                          │
+│  • duplicate-id-active / duplicate-id-aria                           │
+│  • frame-title                                                       │
+│  • input-image-alt                                                   │
+│  • td-headers-attr / th-has-data-cells                               │
+│  • valid-lang                                                        │
+│  • video-caption                                                     │
+│  (40+ audits total, based on axe-core rules)                        │
+│                                                                      │
+│ ─── BEST PRACTICES AUDITS ───                                        │
+│  • is-on-https                                                       │
+│  • uses-http2                                                        │
+│  • no-vulnerable-libraries                                           │
+│  • js-libraries                                                      │
+│  • deprecations                                                      │
+│  • errors-in-console                                                 │
+│  • valid-source-maps                                                 │
+│  • inspector-issues                                                  │
+│  • csp-xss                                                           │
+│  • image-aspect-ratio                                                │
+│  • image-size-responsive                                             │
+│  • doctype                                                           │
+│  • charset                                                           │
+│  • geolocation-on-start                                              │
+│  • notification-on-start                                             │
+│  • paste-preventing-inputs                                           │
+│                                                                      │
+│ ─── SEO AUDITS ───                                                   │
+│  • document-title                                                    │
+│  • meta-description                                                  │
+│  • link-text                                                         │
+│  • hreflang                                                          │
+│  • canonical                                                         │
+│  • is-crawlable                                                      │
+│  • robots-txt                                                        │
+│  • image-alt (shared with accessibility)                             │
+│  • http-status-code                                                  │
+│  • font-size                                                         │
+│  • tap-targets                                                       │
+│  • structured-data (manual audit — not auto-scored)                  │
+│  • crawlable-anchors                                                 │
+│                                                                      │
+│ ─── PASSED / NOT APPLICABLE ───                                      │
+│  Each category also lists passed audits and N/A audits,             │
+│  which Google displays as expandable sections at the bottom.        │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 4E. Screenshots & Filmstrip                                         │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│ • screenshot-thumbnails → filmstrip images of page load over time   │
+│   (base64 encoded JPEG thumbnails at each timing milestone)         │
+│ • final-screenshot → full rendered page screenshot (base64 JPEG)    │
+│                                                                      │
+│ Google PSI shows these as a visual filmstrip timeline.               │
+│ We must display these too!                                           │
+└──────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════
+5. MOBILE vs DESKTOP — KEY DIFFERENCES
+═══════════════════════════════════════════════════════════════════════════
+
+Google runs TWO completely separate Lighthouse analyses:
+
+┌────────────────────────┬─────────────────────────────────────────────┐
+│ Setting                │ Mobile                  │ Desktop           │
+├────────────────────────┼─────────────────────────┼───────────────────┤
+│ strategy param         │ "mobile"                │ "desktop"         │
+│ CPU Throttling         │ 4x slowdown (Moto G4)   │ No throttling     │
+│ Network Throttling     │ Slow 4G (1.6 Mbps)      │ No throttling     │
+│ Screen Size            │ 412×823 px              │ 1350×940 px       │
+│ User Agent             │ Mobile Chrome           │ Desktop Chrome    │
+│ Scores                 │ Usually LOWER           │ Usually HIGHER    │
+│ Device-specific audits │ tap-targets, font-size  │ Not applicable    │
+└────────────────────────┴─────────────────────────┴───────────────────┘
+
+⚠️ OUR APP MUST:
+  1. Run BOTH mobile AND desktop analyses per URL
+  2. Store both results separately in DB
+  3. Let user toggle between Mobile/Desktop on the dashboard
+  4. Show DIFFERENT scores, metrics, issues for each strategy
+
+
+═══════════════════════════════════════════════════════════════════════════
+6. DATABASE SCHEMA (Updated for Full Data)
+═══════════════════════════════════════════════════════════════════════════
+
+Table: projects
+────────────────────────────────────
+  id              UUID PRIMARY KEY
+  url             TEXT NOT NULL
+  status          TEXT (pending | processing | done | failed)
+  created_at      TIMESTAMPTZ
+
+Table: reports
+────────────────────────────────────
+  id              UUID PRIMARY KEY
+  project_id      UUID → projects.id
+  strategy        TEXT ("mobile" | "desktop")
+  
+  -- Category Scores (0-100 integer)
+  performance_score       INTEGER
+  accessibility_score     INTEGER
+  best_practice_score     INTEGER
+  seo_score               INTEGER
+  overall_score           INTEGER (weighted composite)
+  
+  -- Core Performance Metrics (store exact values)
+  fcp_ms          REAL        -- First Contentful Paint (ms)
+  fcp_display     TEXT        -- e.g. "2.5 s"
+  lcp_ms          REAL        -- Largest Contentful Paint (ms)
+  lcp_display     TEXT
+  tbt_ms          REAL        -- Total Blocking Time (ms)
+  tbt_display     TEXT
+  cls_score       REAL        -- Cumulative Layout Shift
+  cls_display     TEXT
+  si_ms           REAL        -- Speed Index (ms)
+  si_display      TEXT
+  tti_ms          REAL        -- Time to Interactive (ms)
+  tti_display     TEXT
+  
+  -- Field Data (CrUX) — may be null if not available
+  field_fcp_ms        REAL
+  field_fcp_category  TEXT    -- FAST | AVERAGE | SLOW
+  field_lcp_ms        REAL
+  field_lcp_category  TEXT
+  field_inp_ms        REAL
+  field_inp_category  TEXT
+  field_cls_score     REAL
+  field_cls_category  TEXT
+  field_ttfb_ms       REAL
+  field_ttfb_category TEXT
+  field_overall_category TEXT
+  
+  -- Screenshots
+  final_screenshot_url  TEXT  -- Store base64 or upload to Supabase Storage
+  filmstrip_data        JSONB -- Array of { timing, data (base64) }
+  
+  -- Raw JSON (store full API response for future reference)
+  raw_lighthouse_json   JSONB
+  
+  created_at      TIMESTAMPTZ
+
+Table: audits
+────────────────────────────────────
+  id              UUID PRIMARY KEY
+  report_id       UUID → reports.id
+  audit_id        TEXT        -- e.g. "first-contentful-paint"
+  category        TEXT        -- performance | accessibility | seo | best-practices
+  group_type      TEXT        -- metric | opportunity | diagnostic | passed | not-applicable
+  title           TEXT        -- e.g. "First Contentful Paint"
+  description     TEXT
+  score           REAL        -- 0 to 1 (null if informative)
+  score_display_mode TEXT     -- numeric | binary | informative | manual
+  display_value   TEXT        -- e.g. "2.5 s" or "Potential savings of 150 KiB"
+  savings_ms      REAL        -- overallSavingsMs (for opportunities)
+  savings_bytes   INTEGER     -- overallSavingsBytes (for opportunities)
+  details_json    JSONB       -- full details object (tables, items, etc.)
+  created_at      TIMESTAMPTZ
+
+Table: pages (for multi-page crawl — Phase 2+)
+────────────────────────────────────
+  id              UUID PRIMARY KEY
+  project_id      UUID → projects.id
+  url             TEXT
+  title           TEXT
+  meta_description TEXT
+  status          TEXT (pending | processing | done | failed)
+  seo_score       INTEGER
+  performance_score INTEGER
+  created_at      TIMESTAMPTZ
+
+Table: issues (legacy — simplified view of failing audits)
+────────────────────────────────────
+  id              UUID PRIMARY KEY
+  project_id      UUID → projects.id
+  report_id       UUID → reports.id
+  audit_id        TEXT
+  type            TEXT (performance | seo | accessibility | best-practices)
+  severity        TEXT (low | medium | high)
+  message         TEXT
+  fix_suggestion  TEXT
+  savings_ms      REAL
+  savings_bytes   INTEGER
+  created_at      TIMESTAMPTZ
+
+
+═══════════════════════════════════════════════════════════════════════════
+7. BACKEND IMPLEMENTATION
+═══════════════════════════════════════════════════════════════════════════
+
+Step 1: Express Endpoints
+─────────────────────────
+  POST /analyze         — Accept { url: string }
+                          → Create project in DB
+                          → Trigger async background job
+                          → Return { job_id }
+
+  GET /status/:id       — Return { status, progress }
+
+  GET /report/:id       — Return full report + audits for BOTH strategies
+                          → { mobile: {...}, desktop: {...} }
+
+  GET /report/:id?strategy=mobile   — Return single strategy report
+
+Step 2: Background Worker Flow
+──────────────────────────────
+  run_scan(project_id, url):
+    1. Update project status → "processing"
+    
+    2. Call PSI API for MOBILE:
+       GET https://www.googleapis.com/pagespeedonline/v5/runPagespeed
+         ?url={url}
+         &strategy=mobile
+         &category=performance
+         &category=seo
+         &category=accessibility
+         &category=best-practices
+    
+    3. Call PSI API for DESKTOP:
+       Same URL but &strategy=desktop
+    
+    4. Parse BOTH responses:
+       - Extract category scores (× 100)
+       - Extract all 6 performance metrics
+       - Extract field data (CrUX) if available
+       - Extract all audits by category
+       - Classify audits into: opportunity/diagnostic/passed/not-applicable
+       - Extract screenshots and filmstrip
+       - Calculate severity for each failing audit
+    
+    5. Save to Supabase:
+       - Insert report row (mobile)
+       - Insert report row (desktop)
+       - Insert all individual audit rows
+       - Insert simplified issues for quick display
+       - Upload screenshots to Supabase Storage
+    
+    6. Update project status → "done"
+
+Step 3: PSI API Response Parser
+───────────────────────────────
+  The parser MUST handle:
+  
+  a) lighthouseResult.categories.performance.score → × 100
+  b) lighthouseResult.categories.accessibility.score → × 100
+  c) lighthouseResult.categories["best-practices"].score → × 100
+  d) lighthouseResult.categories.seo.score → × 100
+  
+  e) For each audit in lighthouseResult.audits:
+     - Read the category it belongs to via categories.X.auditRefs
+     - Determine its group via auditRefs[].group:
+       • "metrics" → metric
+       • "load-opportunities" → opportunity
+       • "diagnostics" → diagnostic
+       • (no group + score=1) → passed
+       • (scoreDisplayMode="notApplicable") → not-applicable
+  
+  f) For field data:
+     - loadingExperience.metrics.FIRST_CONTENTFUL_PAINT_MS.percentile
+     - loadingExperience.metrics.LARGEST_CONTENTFUL_PAINT_MS.percentile
+     - loadingExperience.metrics.INTERACTION_TO_NEXT_PAINT.percentile
+     - loadingExperience.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE.percentile
+     - loadingExperience.metrics.EXPERIMENTAL_TIME_TO_FIRST_BYTE.percentile
+     - loadingExperience.overall_category
+  
+  g) For screenshots:
+     - lighthouseResult.audits["final-screenshot"].details.data
+     - lighthouseResult.audits["screenshot-thumbnails"].details.items[]
+
+Step 4: Score Calculation
+─────────────────────────
+  Google's official Lighthouse scoring:
+  
+  Performance score is a weighted median of:
+    FCP  → 10%
+    SI   → 10%
+    LCP  → 25%
+    TBT  → 30%
+    CLS  → 25%
+  
+  We DON'T recalculate this — we use the score Google returns directly.
+  
+  Our "Overall Score" (custom composite for our UI):
+    overall = (
+      performance × 0.4 +
+      seo × 0.3 +
+      accessibility × 0.2 +
+      best_practices × 0.1
+    )
+
+
+═══════════════════════════════════════════════════════════════════════════
+8. FRONTEND IMPLEMENTATION — MATCHING GOOGLE PSI UI
+═══════════════════════════════════════════════════════════════════════════
+
+Component Architecture:
+───────────────────────
+  src/app/
+  ├── page.tsx                    (main orchestrator)
+  ├── globals.css                 (design tokens + utilities)
+  ├── layout.tsx                  (root layout)
+  └── components/
+      ├── HeroSection.tsx         (header + URL input + device toggle)
+      ├── ScoreCircle.tsx         (reusable animated score donut)
+      ├── ScoreBanner.tsx         (overall score + export button)
+      ├── CategoryScores.tsx      (4 score circles row)
+      ├── FieldDataSection.tsx    (CrUX field data + distribution bars)
+      ├── LabMetrics.tsx          (6 lab metric cards, color-coded)
+      ├── FilmstripTimeline.tsx   (load timeline screenshots)
+      ├── AuditItem.tsx           (single expandable audit row)
+      ├── AuditSection.tsx        (list of AuditItems, collapsible)
+      ├── CategoryReport.tsx      (full A11y/BP/SEO section)
+      └── ScanningState.tsx       (loading animation)
+
+Lab Metric Color Thresholds (Lighthouse Official):
+───────────────────────────────────────────────────
+  FCP:  green < 1800ms, yellow < 3000ms, red ≥ 3000ms
+  LCP:  green < 2500ms, yellow < 4000ms, red ≥ 4000ms
+  TBT:  green < 200ms,  yellow < 600ms,  red ≥ 600ms
+  CLS:  green < 0.1,    yellow < 0.25,   red ≥ 0.25
+  SI:   green < 3400ms, yellow < 5800ms, red ≥ 5800ms
+  TTI:  green < 3800ms, yellow < 7300ms, red ≥ 7300ms
+
+The dashboard shows ALL sections that Google PSI shows:
+
+Section 1: Input Area (HeroSection.tsx)
+────────────────────
+  • URL input field
+  • Device toggle: Mobile / Desktop
+  • "Analyze" button
+  • When switching device toggle AFTER analysis → show cached results
+    for that strategy (no re-fetch needed)
+
+Section 2: Score Banner (ScoreBanner.tsx)
+─────────────────────
+  • Overall weighted score display
+  • Strategy label (Mobile/Desktop Analysis Report)
+  • Export button
+
+Section 3: Category Score Circles (CategoryScores.tsx)
+──────────────────────────────────
+  • 4 animated donut charts: Performance, Accessibility, Best Practices, SEO
+  • Color: green ≥ 90, yellow ≥ 50, red < 50
+
+Section 4: Field Data Banner (FieldDataSection.tsx — if available)
+───────────────────────────────────────────
+  • "Discover what your real users are experiencing"
+  • Core Web Vitals assessment: PASSED / FAILED
+  • 5 metric tiles: FCP, INP, LCP, CLS, TTFB
+  • Distribution bars (green/yellow/red proportions) for each
+
+Section 5: Performance Lab Metrics (LabMetrics.tsx)
+──────────────────────────────────────────────────
+  • 6 Lab metric cards: FCP, LCP, TBT, CLS, SI, TTI
+  • Each card: title + value + color indicator (from thresholds above)
+
+Section 6: Filmstrip / Screenshots (FilmstripTimeline.tsx)
+───────────────────────────────────
+  • Horizontal filmstrip of page load progression
+  • Each frame shows timestamp + screenshot thumbnail
+
+Section 7: Performance Opportunities (AuditSection.tsx)
+─────────────────────────────────────
+  • List of failing opportunity audits
+  • Each shows: title, estimated savings (ms/KiB), expandable details
+  • Expandable detail tables for resources
+  • Sorted by potential savings (highest first)
+
+Section 8: Performance Diagnostics (AuditSection.tsx)
+───────────────────────────────────
+  • List of diagnostic audits
+  • Each shows: title, value, expandable details table
+
+Section 9: Performance Passed Audits (AuditSection.tsx)
+─────────────────────────────────────
+  • Collapsed by default
+  • "X audits passed" heading
+  • Expand to see list of all green-check audits
+
+Section 10: Accessibility Report (CategoryReport.tsx)
+───────────────────────────────────────
+  • Score circle
+  • Failing audits list (with details)
+  • Manual audits (items that can't be auto-checked)
+  • Not-applicable audits
+  • Passed audits (expandable)
+
+Section 11: Best Practices Report (CategoryReport.tsx)
+────────────────────────────────────────
+  • Score circle
+  • Failing audits list
+  • Passed audits (expandable)
+
+Section 12: SEO Report (CategoryReport.tsx)
+──────────────────────────────────
+  • Score circle
+  • Failing audits list
+  • Manual audits
+  • Passed audits (expandable)
+
+
+═══════════════════════════════════════════════════════════════════════════
+9. ENV VARIABLES
+═══════════════════════════════════════════════════════════════════════════
+
+Backend (.env):
+  SUPABASE_URL=https://xxxxx.supabase.co
+  SUPABASE_KEY=eyJhbGciOiJIUzI1NiIs...
+  PSI_API_KEY=<Google Cloud API Key>
+  GEMINI_API_KEY=<Google AI Studio Key> ← For AI Fixes
+
+Frontend (.env.local):
+  NEXT_PUBLIC_API_BASE=http://localhost:8000
+
+
+═══════════════════════════════════════════════════════════════════════════
+10. PHASE-BASED EXECUTION (Updated MVP Roadmap)
+═══════════════════════════════════════════════════════════════════════════
+
+✅ Phase 1 — Core Single-Page Analysis (NOW)
+  • URL input + device toggle
+  • Backend calls PSI API v5 (mobile + desktop)
+  • Parse all 4 category scores
+  • Parse all 6 performance metrics
+  • Parse field data (CrUX) if available
+  • Parse all audits (opportunities, diagnostics, passed)
+  • Parse screenshots + filmstrip
+  • Store everything in Supabase
+  • Frontend displays ALL sections matching Google PSI
+
+✅ Phase 2 — Enhanced Frontend
+  • Filmstrip visual timeline
+  • Expandable audit detail tables
+  • Audit severity color coding
+  • Distribution bars for field data
+  • Smooth animations & transitions
+
+✅ Phase 3 — Background Jobs + Multi-Page
+  • Celery + Redis for background jobs
+  • Live progress updates via polling
+  • Crawl internal links (Playwright) → run PSI on subpages
+  • Page-level breakdown dashboard
+
+✅ Phase 4 — PDF Reports + History
+  • Generate PDF report (Playwright render → PDF)
+  • Store reports in Supabase Storage
+  • Report history per URL
+  • Compare scores over time
+
+✅ Phase 5 — Scaling + AI
+  • AI-powered fix suggestions (LLM integration)
+  • Competitor comparison
+  • Scheduled recurring scans
+  • User accounts + saved projects
+
+
+═══════════════════════════════════════════════════════════════════════════
+11. MISTAKES TO AVOID
+═══════════════════════════════════════════════════════════════════════════
+
+  ❌ Using mock/hardcoded data instead of real PSI API
+  ❌ Running only one strategy (mobile OR desktop) — MUST run BOTH
+  ❌ Ignoring field data (CrUX) when available
+  ❌ Not showing individual audits — Google shows 50+ detailed audits
+  ❌ Recalculating scores manually — use Google's returned scores
+  ❌ Missing filmstrip screenshots
+  ❌ Blocking frontend while scan runs
+  ❌ Not storing raw JSON (needed for future parsing improvements)
+
+  ✅ ALWAYS:
+  • Use real PSI API data
+  • Run both mobile + desktop
+  • Show field data + lab data
+  • Show all audit categories with full details
+  • Store raw response for data integrity
+  • Show partial results early (scores first, then detailed audits)
+
+================================================================================
+                              END OF SPECIFICATION
+================================================================================
