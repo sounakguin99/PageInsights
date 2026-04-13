@@ -12,6 +12,11 @@ const PORT = process.env.PORT || 8000;
 app.use(cors());
 app.use(express.json());
 
+// Basic health check route
+app.get("/", (req, res) => {
+  res.send("Server is running 🚀");
+});
+
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_KEY || '';
 const psiKey = process.env.PSI_API_KEY || '';
