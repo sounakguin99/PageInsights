@@ -10,7 +10,7 @@ interface AIFixAssistantProps {
   auditDescription: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+import { API_BASE } from "../lib/api";
 
 export default function AIFixAssistant({ auditTitle, auditDescription }: AIFixAssistantProps) {
   const [fix, setFix] = useState<string | null>(null);

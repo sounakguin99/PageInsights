@@ -16,6 +16,7 @@ import ScanningState from "./components/ScanningState";
 import RecentScans from "./components/RecentScans";
 import AIAssistant from "./components/AIAssistant";
 import ChatBuddy from "./components/ChatBuddy";
+import { API_BASE } from "./lib/api";
 
 const AUDIT_METRIC_MAP: Record<string, string[]> = {
   // FCP
@@ -72,7 +73,7 @@ const AUDIT_METRIC_MAP: Record<string, string[]> = {
   "cumulative-layout-shift": ["CLS"],
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+// Moved API_BASE to lib/api.ts
 
 export default function Home() {
   const [url, setUrl] = useState("");
