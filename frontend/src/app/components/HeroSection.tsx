@@ -25,7 +25,7 @@ export default function HeroSection({ url, setUrl, device, setDevice, isScanning
           <Zap className="w-4 h-4" />
           <span>Next-Gen Page Analyzer Engine</span>
         </div>
-        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-blue-600 to-slate-700 dark:from-white dark:via-blue-100 dark:to-gray-400">
+        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 pb-2 md:pb-4 leading-tight bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-blue-600 to-slate-700 dark:from-white dark:via-blue-100 dark:to-gray-400">
           Page<span className="text-blue-500">Insights</span>
         </h1>
         <p className="text-lg md:text-xl text-slate-600 dark:text-gray-400 max-w-2xl mx-auto">

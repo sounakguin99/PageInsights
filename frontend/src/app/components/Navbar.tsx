@@ -1,12 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Moon, Sun, Zap } from "lucide-react";
-import { useTheme } from "next-themes";
-import { motion } from "framer-motion";
+import { Zap } from "lucide-react";
 
 export default function Navbar() {
-  const { theme, setTheme } = useTheme();
+
   const [mounted, setMounted] = React.useState(false);
 
   // Avoid hydration mismatch
@@ -30,22 +28,17 @@ export default function Navbar() {
 
         <div className="flex items-center gap-6">
           <div className="hidden md:flex items-center gap-4 text-sm font-medium text-gray-500 dark:text-gray-400">
-            <a href="#" className="hover:text-blue-500 transition-colors">Analyzer</a>
-            <a href="#" className="hover:text-blue-500 transition-colors">Documentation</a>
-            <a href="#" className="hover:text-blue-500 transition-colors">History</a>
+            <a href="#" className="hover:text-blue-500 transition-colors">
+              Analyzer
+            </a>
+            <a href="#" className="hover:text-blue-500 transition-colors">
+              Documentation
+            </a>
+            <a href="#" className="hover:text-blue-500 transition-colors">
+              History
+            </a>
           </div>
 
-          <button
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="p-2.5 rounded-xl glass border border-white/10 hover:border-blue-500/50 transition-all text-gray-500 dark:text-gray-400 hover:text-blue-500 bg-white/5"
-            aria-label="Toggle theme"
-          >
-            {theme === "dark" ? (
-              <Sun className="w-5 h-5" />
-            ) : (
-              <Moon className="w-5 h-5" />
-            )}
-          </button>
         </div>
       </div>
     </nav>

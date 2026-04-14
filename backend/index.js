@@ -2,7 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import axios from 'axios';
+import compression from 'compression';
 import { createClient } from '@supabase/supabase-js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 dotenv.config();
 
@@ -10,6 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 
 app.use(cors());
+app.use(compression());
 app.use(express.json());
 
 // Basic health check route
@@ -220,14 +223,17 @@ async function runScanAsync(targetUrl, projectId) {
         console.log(`[${projectId}] Starting scan for ${targetUrl}`);
         await supabase.from('projects').update({ status: 'processing' }).eq('id', projectId);
 
-        // Mobile scan
-        console.log(`[${projectId}] Running Mobile Scan...`);
-        const mobileData = await callPsiApi(targetUrl, 'mobile');
-        await parseAndSaveReport(projectId, targetUrl, 'mobile', mobileData);
+        console.log(`[${projectId}] Running Mobile + Desktop Scans in parallel...`);
         
-        // Desktop scan
-        console.log(`[${projectId}] Running Desktop Scan...`);
-        const desktopData = await callPsiApi(targetUrl, 'desktop');
+        // Run both scans in parallel
+        const [mobileData, desktopData] = await Promise.all([
+            callPsiApi(targetUrl, 'mobile'),
+            callPsiApi(targetUrl, 'desktop')
+        ]);
+
+        // Save reports (can also be parallelized if needed, but let's do sequentially to avoid DB lock issues if any)
+        console.log(`[${projectId}] Parsing and saving reports...`);
+        await parseAndSaveReport(projectId, targetUrl, 'mobile', mobileData);
         await parseAndSaveReport(projectId, targetUrl, 'desktop', desktopData);
         
         await supabase.from('projects').update({ status: 'done' }).eq('id', projectId);
@@ -245,20 +251,81 @@ app.post('/analyze', async (req, res) => {
         const { url } = req.body;
         if (!url) return res.status(400).json({ error: "URL is required" });
 
+        // Normalize URL
+        let targetUrl = url.trim().toLowerCase();
+        if (!/^https?:\/\//i.test(targetUrl)) {
+            targetUrl = "https://" + targetUrl;
+        }
+
+        // --- Basic Caching Logic ---
+        // Check if we have a successful scan for this URL in the last 1 hour
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        
+        const { data: existingProject } = await supabase
+            .from('projects')
+            .select('id, status, created_at')
+            .eq('url', targetUrl)
+            .eq('status', 'done')
+            .gt('created_at', oneHourAgo)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (existingProject && existingProject.length > 0) {
+            console.log(`[Cache Hit] Returning existing job for ${targetUrl}`);
+            return res.json({ job_id: existingProject[0].id, cached: true });
+        }
+        // --- End Caching Logic ---
+
         const { data, error } = await supabase
             .from('projects')
-            .insert({ url, status: 'pending' })
+            .insert({ url: targetUrl, status: 'pending' })
             .select();
 
         if (error) throw error;
         const projectId = data[0].id;
         
         // Run background scan
-        runScanAsync(url, projectId);
+        runScanAsync(targetUrl, projectId);
 
         res.json({ job_id: projectId });
     } catch (e) {
         res.status(500).json({ error: `Database error: ${e.message}` });
+    }
+});
+
+app.get('/recent', async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('projects')
+            .select('id, url, status, created_at')
+            .order('created_at', { ascending: false })
+            .limit(10);
+        
+        if (error) throw error;
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/history/:url(*)', async (req, res) => {
+    try {
+        const { url } = req.params;
+        // The URL might be double encoded or include protocol, let's keep it simple
+        const targetUrl = url.toLowerCase();
+        
+        const { data, error } = await supabase
+            .from('projects')
+            .select('id, status, created_at, reports(strategy, performance_score, accessibility_score, best_practice_score, seo_score, overall_score)')
+            .eq('url', targetUrl)
+            .eq('status', 'done')
+            .order('created_at', { ascending: false })
+            .limit(20);
+
+        if (error) throw error;
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
 });
 
@@ -353,6 +420,112 @@ app.get('/report/:jobId', async (req, res) => {
         res.json(response);
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/ai-insights/:jobId', async (req, res) => {
+    try {
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const { device } = req.body;
+        
+        // Fetch the report data
+        const { data: reports, error: rErr } = await supabase
+            .from('reports')
+            .select(`*`)
+            .eq('project_id', req.params.jobId)
+            .eq('strategy', device || 'mobile');
+            
+        if (rErr || !reports || reports.length === 0) {
+            return res.status(404).json({ error: "Report not found" });
+        }
+        
+        const report = reports[0];
+        
+        const { data: audits } = await supabase
+            .from('audits')
+            .select('title, description, score, display_value, category, group_type, savings_ms, savings_bytes')
+            .eq('report_id', report.id)
+            .eq('group_type', 'opportunity')
+            .order('savings_ms', { ascending: false })
+            .limit(10);
+            
+        const prompt = `
+        Act as an expert SEO and Web Performance Engineer. I have ran a Google PageSpeed Insights scan on my website.
+        
+        Here are my main Lab Metrics:
+        - Performance Score: ${report.performance_score}/100
+        - Accessibility Score: ${report.accessibility_score}/100
+        - Best Practices Score: ${report.best_practice_score}/100
+        - SEO Score: ${report.seo_score}/100
+        
+        - LCP: ${report.lcp_display}
+        - FCP: ${report.fcp_display}
+        - TBT: ${report.tbt_display}
+        - CLS: ${report.cls_display}
+        - Speed Index: ${report.si_display}
+        
+        Top Opportunities:
+        ${audits?.map(a => `- ${a.title} (Savings: ${a.display_value || (a.savings_ms ? a.savings_ms + 'ms' : '')})`).join('\n')}
+        
+        Please provide a concise, high-level summary of what I should focus on fixing first to get the best ROI on performance, based on these specific metrics and opportunities. Do not give generic advice, read the opportunities provided. Keep it to exactly two short paragraphs and be encouraging but direct. Do not output markdown lists, use paragraph format.
+        `;
+        
+        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+        const result = await model.generateContent(prompt);
+        const text = result.response.text();
+        
+        res.json({ insights: text });
+    } catch (error) {
+        console.error("AI Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/ai-fix', async (req, res) => {
+    try {
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const { title, description } = req.body;
+        
+        const prompt = `
+        Act as an expert Web Performance Engineer. I have a performance issue on my website:
+        Issue: ${title}
+        Description: ${description}
+        
+        Please provide a concise, step-by-step tutorial or code snippet on how to fix this issue in modern web development (e.g., Next.js, HTML/CSS). Keep it under 150 words and use markdown coding blocks if necessary.
+        `;
+        
+        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+        const result = await model.generateContent(prompt);
+        
+        res.json({ fix: result.response.text() });
+    } catch (error) {
+        console.error("AI Fix Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/ai-chat', async (req, res) => {
+    try {
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const { messages, context } = req.body;
+        
+        const transcript = messages.map(m => `${m.role === 'user' ? 'User' : 'You'}: ${m.parts[0].text}`).join("\n\n");
+
+        const prompt = `You are PerfBuddy AI, a friendly, cute AI website optimization buddy helping the user improve their website based on their PageSpeed insights audit.
+Context of the user's scan: ${context || 'None provided yet. Encourage them to run a scan.'}
+
+Conversation History so far:
+${transcript}
+
+Based on the conversation above, provide your next helpful response. Be helpful, provide concise code snippets when asked, and maintain a friendly, cute, upbeat tone. Focus on web performance and answering their questions about the audit. keep it very concise. Do not prefix your response with "You:" or "PerfBuddy:".`;
+
+        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+        const result = await model.generateContent(prompt);
+        
+        res.json({ reply: result.response.text() });
+    } catch (error) {
+        console.error("AI Chat Error:", error);
+        res.status(500).json({ error: error.message });
     }
 });
 

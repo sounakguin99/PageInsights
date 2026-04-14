@@ -8,7 +8,8 @@ export function ThemeProvider({ children, ...props }: React.ComponentProps<typeo
     <NextThemesProvider 
       attribute="class" 
       defaultTheme="dark" 
-      enableSystem 
+      forcedTheme="dark"
+      enableSystem={false}
       {...props}
     >
       {children}
