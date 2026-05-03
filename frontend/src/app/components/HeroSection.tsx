@@ -14,7 +14,7 @@ interface HeroSectionProps {
 
 export default function HeroSection({ url, setUrl, device, setDevice, isScanning, onAnalyze }: HeroSectionProps) {
   return (
-    <>
+    <section aria-label="PageInsights web performance and SEO analyzer">
       {/* Hero Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -40,17 +40,22 @@ export default function HeroSection({ url, setUrl, device, setDevice, isScanning
         transition={{ delay: 0.1 }}
         className="w-full max-w-4xl glass-card p-2 mb-8 relative z-10"
       >
-        <form onSubmit={onAnalyze} className="flex flex-col md:flex-row gap-2">
+        <form onSubmit={onAnalyze} aria-label="Analyze website URL" className="flex flex-col md:flex-row gap-2">
           <div className="flex-1 flex items-center bg-white/50 dark:bg-black/40 rounded-lg px-4 py-3 border border-slate-200 dark:border-white/5 focus-within:border-blue-500/50 transition-colors">
             <Globe className="w-5 h-5 text-slate-400 dark:text-gray-500 mr-3 hidden sm:block" />
+            <label htmlFor="url-input" className="sr-only">Website URL to analyze</label>
             <input
-              type="text"
+              id="url-input"
+              type="url"
               required
               placeholder="Enter website URL (e.g. example.com)..."
               className="w-full bg-transparent border-none outline-none text-slate-900 dark:text-white text-lg placeholder:text-slate-400 dark:placeholder:text-gray-600"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               disabled={isScanning}
+              autoComplete="url"
+              aria-label="Website URL to analyze"
+              spellCheck={false}
             />
           </div>
 
@@ -87,6 +92,6 @@ export default function HeroSection({ url, setUrl, device, setDevice, isScanning
           </button>
         </form>
       </motion.div>
-    </>
+    </section>
   );
 }

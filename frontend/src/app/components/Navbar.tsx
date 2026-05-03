@@ -15,16 +15,16 @@ export default function Navbar() {
   if (!mounted) return null;
 
   return (
-    <nav className="sticky top-0 z-50 w-full glass border-b border-white/10 dark:border-white/5">
+    <nav aria-label="Main navigation" className="sticky top-0 z-50 w-full glass border-b border-white/10 dark:border-white/5">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-2 group cursor-pointer">
+        <a href="/" aria-label="PageInsights home" className="flex items-center gap-2 group cursor-pointer">
           <div className="p-1.5 rounded-lg bg-blue-600 text-white shadow-lg shadow-blue-500/20 group-hover:scale-110 transition-transform">
             <Zap className="w-5 h-5 fill-current" />
           </div>
           <span className="text-xl font-bold tracking-tight">
             Page<span className="text-blue-500">Insights</span>
           </span>
-        </div>
+        </a>
 
         <div className="flex items-center gap-6">
           <div className="hidden md:flex items-center gap-4 text-sm font-medium text-gray-500 dark:text-gray-400">

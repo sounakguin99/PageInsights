@@ -4,7 +4,7 @@ import { Code, Share2, Globe, Zap } from "lucide-react";
 
 export default function Footer() {
   return (
-    <footer className="w-full py-12 px-6 border-t border-white/10 dark:border-white/5 bg-white/5 dark:bg-black/20 mt-20">
+    <footer aria-label="Site footer" className="w-full py-12 px-6 border-t border-white/10 dark:border-white/5 bg-white/5 dark:bg-black/20 mt-20">
       <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-12">
         <div className="col-span-1 md:col-span-2">
           <div className="flex items-center gap-2 mb-6">
@@ -54,16 +54,22 @@ export default function Footer() {
           </h4>
           <div className="flex items-center gap-4">
             <a
-              href="#"
+              href="https://github.com/pageinsights"
+              target="_blank"
+              rel="noopener noreferrer"
               className="p-2 rounded-lg glass border border-white/10 hover:border-blue-500/30 transition-all text-gray-500 hover:text-blue-500"
               title="GitHub"
+              aria-label="PageInsights on GitHub"
             >
               <Code className="w-5 h-5" />
             </a>
             <a
-              href="#"
+              href="https://twitter.com/pageinsights"
+              target="_blank"
+              rel="noopener noreferrer"
               className="p-2 rounded-lg glass border border-white/10 hover:border-blue-500/30 transition-all text-gray-500 hover:text-blue-500"
-              title="Twitter"
+              title="Twitter / X"
+              aria-label="PageInsights on Twitter"
             >
               <Share2 className="w-5 h-5" />
             </a>
