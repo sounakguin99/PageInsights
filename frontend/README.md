@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PageInsights
 
-## Getting Started
+PageInsights is a comprehensive web performance analysis tool and dashboard. It leverages the Google PageSpeed Insights API to analyze website performance, accessibility, SEO, and best practices. Integrated with an AI companion (PerfBuddy AI) powered by Google Gemini, PageInsights provides actionable optimization advice and historical tracking to help developers improve their web applications.
 
-First, run the development server:
+This directory contains the **Frontend** application for PageInsights.
+
+## 🌟 Features
+
+- **Deep Performance Audits:** Analyzes both mobile and desktop versions of any given URL, pulling Core Web Vitals like LCP, FCP, TBT, CLS, and Speed Index.
+- **Historical Tracking:** Saves scan reports over time in a Supabase database, allowing you to track performance improvements or regressions.
+- **AI-Powered Insights:** Uses Google Generative AI (Gemini) to process Lighthouse audits and highlight the most impactful optimization opportunities.
+- **PerfBuddy AI:** An interactive chat assistant to help you understand audit metrics and provide code-level fixes.
+- **Modern UI:** Built with Next.js, React 19, Tailwind CSS v4, Framer Motion, and Recharts for beautiful data visualization and a smooth user experience.
+
+## 💻 Tech Stack
+
+### Frontend (This Directory)
+- **Framework:** [Next.js](https://nextjs.org/) (App Router), React 19
+- **Styling:** Tailwind CSS v4, Framer Motion
+- **Data Visualization:** Recharts
+- **Icons:** Lucide React
+- **Data Fetching:** Axios
+
+### Backend
+- **Server:** Node.js, Express
+- **Database:** Supabase (PostgreSQL)
+- **APIs:** Google PageSpeed Insights API, Google Generative AI (Gemini)
+
+## 🚀 Getting Started (Frontend)
+
+Follow these instructions to run the frontend application locally.
+
+### Prerequisites
+
+Ensure you have Node.js (v20+ recommended) and `npm` installed. You will also need the backend server running to fetch data properly.
+
+### 1. Installation
+
+Navigate to the `frontend` directory and install the dependencies:
+
+```bash
+npm install
+```
+
+### 2. Environment Variables
+
+Create a `.env.local` file in the root of the `frontend` directory and configure the backend API endpoint:
+
+```env
+NEXT_PUBLIC_API_BASE=http://localhost:8000
+```
+*(Make sure your local backend server is running on port 8000)*
+
+### 3. Running the Development Server
+
+Start the Next.js development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the application.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🛠️ Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `src/` - React components, hooks, and layout utilities.
+- `public/` - Static assets and global resources.
+- `package.json` - Project metadata and dependencies.
 
-## Learn More
+## 🤝 Contributing
 
-To learn more about Next.js, take a look at the following resources:
+Contributions, issues, and feature requests are welcome! Feel free to explore the codebase and submit pull requests.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 📝 License
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is licensed under the MIT License.
